@@ -1,0 +1,106 @@
+# VoxCommand profile. Edits are picked up while running (model/microphone changes need a restart).
+
+settings:
+  model: small.en          # tiny.en | base.en | small.en | medium.en | large-v3-turbo | distil-large-v3 ...
+  device: auto             # auto = NVIDIA GPU if usable, otherwise CPU
+  language: en             # use a multilingual model (e.g. "small") and e.g. "de" for other languages
+  microphone: null         # null = system default; see `voxcommand devices`
+  wake_word: null          # e.g. "computer" -> only "computer, landing gear" triggers commands
+  push_to_talk: null       # e.g. rightctrl, f13, mouse4 -> listen only while held (needs the input group)
+  match_threshold: 82      # 0-100; raise if wrong commands fire, lower if commands are missed
+  key_press_ms: 50         # how long tapped keys are held; some games need 80-100
+
+# Phrase syntax:  [a|b] = alternatives,  [word|] = optional word,  trailing * = capture as {text}
+# Actions:
+#   key: ctrl+shift+f1     tap a key or combo   (optional  hold: seconds,  times: n)
+#   press: w / release: w  hold a key down until released
+#   type: "some text"      type text
+#   mouse: left            click (left/right/middle/back/forward; optional hold:, times:)
+#   scroll: -3             mouse wheel (negative = down)
+#   pause: 0.5             wait, in seconds
+#   run: "shell command"   launch something (optional  wait: true; {query} = {text} URL-encoded)
+#   say: "text"            speak a reply ({time}, {date}, {day} = now; e.g. "It's {time}")
+#   sound: /path/file.wav  play a sound
+#   listening: off         off | on | toggle
+commands:
+  # --- controlling VoxCommand itself ---
+  - phrases: ["stop listening", "go to sleep"]
+    actions:
+      - listening: off
+      - say: "paused"
+  - phrases: ["start listening", "wake up"]
+    actions:
+      - listening: on
+      - say: "listening"
+
+  # --- time and date ---
+  - name: tell the time
+    phrases: ["what time is it", "[what's|what is] the time", "tell me the time"]
+    actions:
+      - say: "It's {time}"
+  - name: tell the date
+    phrases: ["what [day|date] is it", "[what's|what is] [the|today's] date"]
+    actions:
+      - say: "It's {day}, {date}"
+
+  # --- game-style examples ---
+  - name: landing gear
+    phrases: ["[toggle|] landing gear", "gear [up|down]"]
+    actions:
+      - key: g
+
+  - name: power to shields
+    phrases: ["[full|divert|] power to shields", "shields up"]
+    actions:
+      - key: up
+        times: 4
+      - say: "shields"
+
+  - name: fire missiles
+    phrases: ["fire [missile|missiles]", "launch [missile|missiles]"]
+    actions:
+      - mouse: right
+        hold: 0.2
+
+  - name: auto run
+    phrases: ["auto run", "keep [running|walking]"]
+    actions:
+      - press: w
+  - name: stop
+    phrases: ["stop [running|walking]", "all stop"]
+    actions:
+      - release: w
+
+  - name: quick save
+    phrases: ["quick save", "save [the|] game"]
+    actions:
+      - key: f5
+      - pause: 0.3
+      - say: "saved"
+
+  # --- desktop examples ---
+  - phrases: ["open [a|the|] terminal"]
+    actions:
+      - run: "xdg-terminal-exec || ptyxis || gnome-terminal || konsole"
+  - phrases: ["[take a|] screenshot"]
+    actions:
+      - key: print
+  - phrases: ["volume up", "louder"]
+    actions:
+      - key: volumeup
+        times: 3
+  - phrases: ["volume down", "quieter"]
+    actions:
+      - key: volumedown
+        times: 3
+  - phrases: ["[play|pause] [the|] music"]
+    actions:
+      - key: play
+  - name: dictate
+    phrases: ["type *", "dictate *"]
+    actions:
+      - type: "{text}"
+  - name: web search
+    phrases: ["search [for|] *"]
+    actions:
+      - run: "xdg-open https://duckduckgo.com/?q={query}"

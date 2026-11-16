@@ -1,0 +1,12 @@
+# systemd user unit: copy to ~/.config/systemd/user/ then
+#   systemctl --user enable --now voxcommand
+[Unit]
+Description=VoxCommand voice macros
+After=pipewire.service graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/voxcommand run
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target
