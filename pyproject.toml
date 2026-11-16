@@ -1,6 +1,6 @@
 [project]
 name = "voxcommand"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Open-source voice command macros for Linux (a VoiceAttack alternative) powered by Whisper"
 readme = "README.md"
 license = { text = "MIT" }
@@ -23,6 +23,9 @@ dev = ["pytest"]
 
 [project.scripts]
 voxcommand = "voxcommand.cli:main"
+
+[tool.hatch.version]
+path = "voxcommand/__init__.py"
 
 [build-system]
 requires = ["hatchling"]

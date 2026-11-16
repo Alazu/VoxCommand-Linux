@@ -9,7 +9,7 @@ cd "$(dirname "$(readlink -f "$0")")"
 PYVER=3.12
 EXTRAS="gui"; SUFFIX=""
 if [[ "${1:-}" == "--gpu" ]]; then EXTRAS="gui,gpu"; SUFFIX="-gpu"; fi
-VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' voxcommand/__init__.py)
 ARCH=$(uname -m)
 BUILD=build/appimage$SUFFIX
 APPDIR=$BUILD/VoxCommand.AppDir
