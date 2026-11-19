@@ -72,7 +72,7 @@ def _sapi_voices():
     return [tokens.Item(i) for i in range(tokens.Count)]
 
 
-def _say_sapi(text: str, s: VoiceSettings):
+def _say_sapi(text: str, s: VoiceSettings, wav: str | None = None):
     from xml.sax.saxutils import escape
 
     import comtypes.client
@@ -87,8 +87,17 @@ def _say_sapi(text: str, s: VoiceSettings):
                 break
     sapi.Rate = max(-10, min(10, round(s.rate / 10)))
     sapi.Volume = max(0, min(100, 100 + s.volume))
-    # SAPI XML: pitch -10..10. Flag 8 = SVSFIsXML, so escape the spoken text.
-    sapi.Speak(f'<pitch absmiddle="{max(-10, min(10, round(s.pitch / 10)))}">{escape(text)}</pitch>', 8)
+    stream = None
+    if wav:
+        stream = comtypes.client.CreateObject("SAPI.SpFileStream")
+        stream.Open(str(Path(wav).absolute()), 3)  # SSFMCreateForWrite
+        sapi.AudioOutputStream = stream
+    try:
+        # SAPI XML: pitch -10..10. Flag 8 = SVSFIsXML, so escape the spoken text.
+        sapi.Speak(f'<pitch absmiddle="{max(-10, min(10, round(s.pitch / 10)))}">{escape(text)}</pitch>', 8)
+    finally:
+        if stream is not None:
+            stream.Close()
 
 
 def _say_system(text: str, s: VoiceSettings):

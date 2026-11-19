@@ -55,8 +55,11 @@ jobs:
           if ($LASTEXITCODE) { throw "piper failed" }
           & $exe transcribe -p voxcommand\example_profile.yaml piper.wav
           if ($LASTEXITCODE) { throw "piper speech did not match" }
-          & $exe say --engine system "VoxCommand test"
+          # The Windows (SAPI) voice through VoxCommand, saved to a file (the runner has no speakers)
+          & $exe say --engine system --voice "Microsoft Zira Desktop - English (United States)" --wav sapi.wav "gear up"
           if ($LASTEXITCODE) { throw "SAPI speech failed" }
+          & $exe transcribe -p voxcommand\example_profile.yaml sapi.wav
+          if ($LASTEXITCODE) { throw "SAPI speech did not match" }
 
       - name: Start the GUI and take a screenshot
         shell: pwsh

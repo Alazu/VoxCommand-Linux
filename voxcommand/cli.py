@@ -85,7 +85,11 @@ def cmd_say(args):
     text = " ".join(args.text)
     if args.wav:
         if voice.engine != "piper":
-            sys.exit("--wav needs a Piper voice (--engine piper)")
+            if sys.platform != "win32":
+                sys.exit("--wav needs a Piper voice (--engine piper) on Linux")
+            voices._say_sapi(text, voice, args.wav)
+            print(f"wrote {args.wav}")
+            return
         result = voices.synthesize_piper(text, voice)
         voices.save_wav(args.wav, *result)
         print(f"wrote {args.wav} ({len(result[0]) / result[1]:.1f}s)")
@@ -192,7 +196,7 @@ def main(argv=None):
     p.add_argument("text", nargs="+")
     p.add_argument("--engine", choices=["system", "piper"])
     p.add_argument("--voice", help="voice name, Piper voice key or .onnx file")
-    p.add_argument("--wav", help="save Piper speech to this WAV file instead of playing it")
+    p.add_argument("--wav", help="save the speech to this WAV file instead of playing it (Piper; on Windows also system voices)")
     p = add("init", cmd_init, "create an example profile")
     p.add_argument("--force", action="store_true")
     add("devices", cmd_devices, "list microphones")
