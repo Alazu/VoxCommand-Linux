@@ -142,7 +142,7 @@ mishearings still trigger the right command.
 | `run: "command"` | Run a shell command (`wait: true` to block). `{text}` is shell-quoted |
 | `open: "https://…?q={query}"` | Open a URL, file, folder or shortcut with its default app (no shell) |
 | `say: "text"` | Speak a reply with the voice from Settings; add `voice:` to override it for one command |
-| `sound: file.wav` | Play a sound (Windows: `.wav` only) |
+| `sound: file.mp3` | Play a sound file (wav, mp3, ogg, flac, m4a…) |
 | `listening: off` | `off`/`on`/`toggle`: while off, only commands that turn it back on work |
 
 A command may also set `repeat: n`. Key names are letters, digits, `f1`-`f24`, `space`, `enter`,

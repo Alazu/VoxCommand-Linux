@@ -336,3 +336,32 @@ def test_windows_example_profile_has_no_linux_commands(tmp_path, monkeypatch):
     text = (tmp_path / "p.yaml").read_text(encoding="utf-8")
     assert "konsole" not in text and "xdg-open" not in text and 'run: "start cmd"' in text
     assert load_profile(tmp_path / "p.yaml").commands
+
+
+@pytest.mark.parametrize("codec,ext", [("flac", "flac"), ("libmp3lame", "mp3"), ("pcm_s16le", "wav")])
+def test_sound_files_decode(tmp_path, codec, ext):
+    import av
+
+    from voxcommand.audio import decode_sound, sound_path
+
+    path = tmp_path / f"beep.{ext}"
+    with av.open(str(path), "w") as out:
+        stream = out.add_stream(codec, rate=44100, layout="mono")
+        t = np.arange(44100) / 44100
+        frame = av.AudioFrame.from_ndarray((np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)[None, :],
+                                           format="s16", layout="mono")
+        frame.sample_rate = 44100
+        for f in (frame, None):
+            for packet in stream.encode(f):
+                out.mux(packet)
+    data, rate = decode_sound(sound_path(f'"{path}"'))  # pasted with quotes, as Explorer's Copy as path does
+    assert rate == 48000 and data.shape[1] == 2 and abs(len(data) / rate - 1.0) < 0.1
+    assert 0.3 < np.abs(data).max() <= 1.0
+
+
+def test_missing_sound_file_is_reported(monkeypatch):
+    from voxcommand import actions, audio
+
+    monkeypatch.setattr(actions, "WINDOWS", True)
+    with pytest.raises(FileNotFoundError, match="not found"):
+        actions.Executor().run_action({"sound": "/no/such/file.mp3"})

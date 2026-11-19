@@ -60,6 +60,13 @@ jobs:
           if ($LASTEXITCODE) { throw "SAPI speech failed" }
           & $exe transcribe -p voxcommand\example_profile.yaml sapi.wav
           if ($LASTEXITCODE) { throw "SAPI speech did not match" }
+          # Sound files: the bundled decoder reads compressed formats (the runner has no speakers to play them)
+          $windows_sound = "$env:SystemRoot\Media\Windows Notify System Generic.wav"
+          & $exe play --decode-only "$windows_sound"
+          if ($LASTEXITCODE) { throw "wav decode failed" }
+          python -c "import av, numpy as np; o = av.open('t.mp3', 'w'); s = o.add_stream('libmp3lame', rate=44100, layout='mono'); f = av.AudioFrame.from_ndarray(np.zeros((1, 44100), np.int16), format='s16', layout='mono'); f.sample_rate = 44100; [o.mux(p) for x in (f, None) for p in s.encode(x)]; o.close()"
+          & $exe play --decode-only t.mp3
+          if ($LASTEXITCODE) { throw "mp3 decode failed" }
 
       - name: Start the GUI and take a screenshot
         shell: pwsh

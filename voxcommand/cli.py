@@ -96,6 +96,20 @@ def cmd_say(args):
         voices.say(text, voice)
 
 
+def cmd_play(args):
+    """Play a sound file the way the sound action does (handy to check a file before using it)."""
+    from .audio import decode_sound, sound_path, sounddevice
+
+    try:
+        data, rate = decode_sound(sound_path(args.file))
+    except Exception as e:  # noqa: BLE001
+        sys.exit(f"cannot read {args.file}: {e}")
+    print(f"{args.file}: {len(data) / rate:.1f}s")
+    if not args.decode_only:
+        sd = sounddevice()
+        sd.play(data, rate, blocking=True)
+
+
 def cmd_check(args):
     path = resolve_profile(args.profile)
     profile = load_profile(path)
@@ -193,6 +207,10 @@ def main(argv=None):
     add("check", cmd_check, "validate a profile and list its phrases")
     p = add("transcribe", cmd_transcribe, "transcribe WAV files and show the command each matches")
     p.add_argument("files", nargs="+")
+    p = sub.add_parser("play", help="play a sound file (wav, mp3, ogg, flac…)")
+    p.add_argument("file")
+    p.add_argument("--decode-only", action="store_true", help="just check that the file can be read")
+    p.set_defaults(func=cmd_play)
     p = add("say", cmd_say, "speak text with the profile's voice")
     p.add_argument("text", nargs="+")
     p.add_argument("--engine", choices=["system", "piper"])

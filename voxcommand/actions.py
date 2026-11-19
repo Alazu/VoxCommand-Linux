@@ -264,14 +264,14 @@ class Executor:
                     voice = replace(voice, engine=str(action["engine"]))
             say(fill(action["say"]), voice)
         elif "sound" in action:
-            if WINDOWS:
-                import winsound
+            from .audio import play_sound, sound_path
 
-                winsound.PlaySound(os.path.expanduser(fill(action["sound"])), winsound.SND_FILENAME | winsound.SND_ASYNC)
-            else:
-                player = shutil.which("pw-play") or shutil.which("paplay") or shutil.which("aplay")
-                if player:
-                    subprocess.Popen([player, os.path.expanduser(fill(action["sound"]))])
+            player = None if WINDOWS else shutil.which("pw-play") or shutil.which("paplay")
+            path = sound_path(fill(action["sound"]))
+            if player and os.path.isfile(path):
+                subprocess.Popen([player, path])
+            else:  # Windows, or no PipeWire/PulseAudio player: decode it ourselves
+                play_sound(path, self.log)
         elif "listening" in action:
             self.on_listening(action["listening"])
 

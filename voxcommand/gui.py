@@ -36,7 +36,7 @@ ACTION_HINTS = {
     "mouse": "left, right, middle, back or forward",
     "scroll": "wheel steps, negative = down",
     "say": "text to speak; {time}, {date}, {day} = now",
-    "sound": "path to a sound file",
+    "sound": "audio file (wav, mp3, ogg, flac…); use Sound file… to pick one",
     "listening": "on, off or toggle",
 }
 ACTION_GUIDE = """
@@ -63,7 +63,7 @@ leave them blank for the defaults.</p>
 <tr><td><b>say</b></td><td>Text spoken aloud with the voice chosen in Settings. <code>{text}</code> allowed.
   To use a different voice for one command, add <code>voice: en_GB-alan-medium</code> (a downloaded Piper voice),
   a path to a <code>.onnx</code> voice file, or a system voice name, in the profile file.</td><td>-</td><td>-</td><td><code>shields up</code>, <code>It's {time}</code></td></tr>
-<tr><td><b>sound</b></td><td>Path to an audio file to play</td><td>-</td><td>-</td><td><code>~/sounds/ok.wav</code> (Windows: .wav files)</td></tr>
+<tr><td><b>sound</b></td><td>Audio file to play: wav, mp3, ogg, flac, m4a…</td><td>-</td><td>-</td><td><code>~/sounds/ok.mp3</code>. Use <b>Sound file…</b> to pick one.</td></tr>
 <tr><td><b>listening</b></td><td><code>on</code>, <code>off</code> or <code>toggle</code>. While off, only commands with a
   listening action still work.</td><td>-</td><td>-</td><td><code>off</code></td></tr>
 </table>
@@ -584,6 +584,10 @@ class MainWindow(QMainWindow):
         app_button.setToolTip("Pick an installed application; sets the selected run action or adds one")
         app_button.clicked.connect(self.pick_application)
         row.addWidget(app_button)
+        sound_button = QPushButton("Sound file…")
+        sound_button.setToolTip("Pick an audio file; sets the selected sound action or adds one")
+        sound_button.clicked.connect(self.pick_sound)
+        row.addWidget(sound_button)
         guide_button = QPushButton("Action guide")
         guide_button.setToolTip("All action types, their values and key names")
         guide_button.clicked.connect(self.show_guide)
@@ -1050,6 +1054,29 @@ class MainWindow(QMainWindow):
             self.phrases_edit.setPlainText("\n".join(phrases))
             if self.name_edit.text().strip() in ("", "new command"):
                 self.name_edit.setText(f"open {app.name}")
+        self._loading = False
+        self.table.setCurrentCell(row, 1)
+        self.edited()
+
+    def pick_sound(self):
+        if not (0 <= self.current < len(self.commands)):
+            return
+        row = self.table.currentRow()
+        combo = self.table.cellWidget(row, 0) if row >= 0 else None
+        current = self.table.item(row, 1).text() if combo is not None and combo.currentText() == "sound" else ""
+        start = str(Path(current).parent) if current else str(Path.home())
+        name, _ = QFileDialog.getOpenFileName(self, "Sound file", start,
+                                              "Audio (*.wav *.mp3 *.ogg *.oga *.opus *.flac *.m4a *.aac *.wma);;All files (*)")
+        if not name:
+            return
+        self._loading = True
+        if current or (combo is not None and combo.currentText() == "sound"):
+            self.table.item(row, 1).setText(name)
+        else:
+            row = 0 if self._is_blank_command() else self.table.rowCount()
+            if row == 0:
+                self.table.setRowCount(0)
+            self._append_action_row({"sound": name})
         self._loading = False
         self.table.setCurrentCell(row, 1)
         self.edited()

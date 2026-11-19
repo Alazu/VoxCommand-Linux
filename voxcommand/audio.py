@@ -48,6 +48,45 @@ def read_wav(path) -> np.ndarray:
     return data.astype(np.float32)
 
 
+def sound_path(value: str) -> str:
+    """A sound path as typed or pasted: strip quotes (Explorer's "Copy as path" adds them), expand ~ and %VARS%."""
+    path = value.strip().strip('"').strip("'")
+    return os.path.expandvars(os.path.expanduser(path))
+
+
+def decode_sound(path: str) -> tuple[np.ndarray, int]:
+    """Any common audio file (wav, mp3, ogg, flac, m4a…) -> (float32 frames x 2 channels, sample rate)."""
+    import av
+
+    rate = 48000
+    resampler = av.AudioResampler(format="flt", layout="stereo", rate=rate)
+    chunks = []
+    with av.open(path) as container:
+        for frame in container.decode(audio=0):
+            chunks += [f.to_ndarray().reshape(-1, 2) for f in resampler.resample(frame)]
+    chunks += [f.to_ndarray().reshape(-1, 2) for f in resampler.resample(None)]
+    if not chunks:
+        raise ValueError(f"{path}: no audio in this file")
+    return np.concatenate(chunks).astype(np.float32), rate
+
+
+def play_sound(path: str, log=print):
+    """Play a sound file in the background (its own output stream, so it can overlap spoken replies)."""
+    path = sound_path(path)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"sound file not found: {path}")
+    data, rate = decode_sound(path)
+
+    def run():
+        try:
+            with sounddevice().OutputStream(samplerate=rate, channels=2, dtype="float32") as out:
+                out.write(data)
+        except Exception as e:  # noqa: BLE001 - a missing speaker must not break the macro thread
+            log(f"    ! sound: {e}")
+
+    threading.Thread(target=run, daemon=True, name="sound").start()
+
+
 class Segmenter:
     """Energy-based voice activity detector: feed fixed-size blocks, get whole utterances back.
 
