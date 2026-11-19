@@ -19,6 +19,7 @@ settings:
 #   scroll: -3             mouse wheel (negative = down)
 #   pause: 0.5             wait, in seconds
 #   run: "shell command"   launch something (optional  wait: true; {query} = {text} URL-encoded)
+#   open: "https://..."    open a URL, file or folder with its default app
 #   say: "text"            speak a reply ({time}, {date}, {day} = now; e.g. "It's {time}")
 #   sound: /path/file.wav  play a sound
 #   listening: off         off | on | toggle
@@ -103,4 +104,4 @@ commands:
   - name: web search
     phrases: ["search [for|] *"]
     actions:
-      - run: "xdg-open https://duckduckgo.com/?q={query}"
+      - open: "https://duckduckgo.com/?q={query}"

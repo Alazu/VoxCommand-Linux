@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 import time
 from importlib import resources
@@ -123,8 +122,10 @@ def cmd_check(args):
 
 def write_example(target: Path):
     target.parent.mkdir(parents=True, exist_ok=True)
-    with resources.as_file(resources.files("voxcommand") / "example_profile.yaml") as src:
-        shutil.copyfile(src, target)
+    text = (resources.files("voxcommand") / "example_profile.yaml").read_text(encoding="utf-8")
+    if sys.platform == "win32":
+        text = text.replace('run: "xdg-terminal-exec || ptyxis || gnome-terminal || konsole"', 'run: "start cmd"')
+    target.write_text(text, encoding="utf-8")
 
 
 def cmd_gpu(args):

@@ -326,3 +326,13 @@ def test_sapi_voices():
     from voxcommand import voices
 
     assert voices.system_voices(), "Windows should have at least one SAPI voice"
+
+
+def test_windows_example_profile_has_no_linux_commands(tmp_path, monkeypatch):
+    from voxcommand import cli
+
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    cli.write_example(tmp_path / "p.yaml")
+    text = (tmp_path / "p.yaml").read_text(encoding="utf-8")
+    assert "konsole" not in text and "xdg-open" not in text and 'run: "start cmd"' in text
+    assert load_profile(tmp_path / "p.yaml").commands
