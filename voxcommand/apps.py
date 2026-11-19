@@ -1,4 +1,5 @@
-"""Find installed desktop applications (.desktop files) for the GUI's application picker."""
+"""Find installed applications for the GUI's application picker: .desktop files on Linux,
+Start Menu shortcuts on Windows."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import configparser
 import os
 import re
 import shlex
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,7 +39,37 @@ def exec_to_command(exec_line: str) -> str:
     return shlex.join(p for p in parts if p)
 
 
+def start_menu_dirs() -> list[Path]:
+    dirs = [os.environ.get("APPDATA"), os.environ.get("ProgramData")]
+    return [Path(d) / "Microsoft" / "Windows" / "Start Menu" / "Programs" for d in dirs if d]
+
+
+def list_windows_apps(dirs: list[Path] | None = None) -> list[DesktopApp]:
+    """Start Menu shortcuts; the command opens the shortcut like a click in the Start Menu does."""
+    seen: dict[str, DesktopApp] = {}
+    skip = ("uninstall", "readme", "help", "documentation", "release notes", "website")
+    for base in dirs or start_menu_dirs():
+        if not base.is_dir():
+            continue
+        for file in sorted(base.rglob("*")):
+            if file.suffix.lower() not in (".lnk", ".url", ".appref-ms"):
+                continue
+            name = file.stem
+            if name.lower() in seen or any(word in name.lower() for word in skip):
+                continue
+            folder = str(file.parent.relative_to(base))
+            seen[name.lower()] = DesktopApp(name=name, command=f'start "" "{file}"',
+                                            comment="" if folder == "." else folder, path=str(file))
+    return sorted(seen.values(), key=lambda a: a.name.lower())
+
+
 def list_apps(dirs: list[Path] | None = None) -> list[DesktopApp]:
+    if sys.platform == "win32":
+        return list_windows_apps(dirs)
+    return list_desktop_apps(dirs)
+
+
+def list_desktop_apps(dirs: list[Path] | None = None) -> list[DesktopApp]:
     seen: dict[str, DesktopApp] = {}  # desktop-file id -> app; earlier dirs win, as in the spec
     for base in dirs or data_dirs():
         if not base.is_dir():

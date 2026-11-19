@@ -32,6 +32,7 @@ ACTION_HINTS = {
     "type": "text to type; {text} = what a trailing * captured",
     "pause": "seconds, e.g. 0.5",
     "run": "shell command; {text} is inserted safely quoted",
+    "open": "URL, file, folder or shortcut to open; {query} = URL-encoded words",
     "mouse": "left, right, middle, back or forward",
     "scroll": "wheel steps, negative = down",
     "say": "text to speak; {time}, {date}, {day} = now",
@@ -55,11 +56,14 @@ leave them blank for the defaults.</p>
 <tr><td><b>scroll</b></td><td>Wheel steps; positive = up, negative = down</td><td>-</td><td>-</td><td><code>-3</code></td></tr>
 <tr><td><b>pause</b></td><td>Seconds to wait (decimals allowed)</td><td>-</td><td>-</td><td><code>0.5</code></td></tr>
 <tr><td><b>run</b></td><td>Shell command, started in the background. <code>{text}</code> is inserted safely quoted; <code>{query}</code> is the same text URL-encoded.
-  Use <b>Run application…</b> to pick an installed app.</td><td>-</td><td>-</td><td><code>steam</code>, <code>xdg-open https://…</code></td></tr>
+  Use <b>Run application…</b> to pick an installed app.</td><td>-</td><td>-</td><td><code>steam</code>, <code>notepad</code></td></tr>
+<tr><td><b>open</b></td><td>A web address, file, folder or shortcut, opened with its default app (no shell).
+  <code>{query}</code> = the words after a <code>*</code> phrase, URL-encoded. <b>Add web search…</b> uses this.</td>
+  <td>-</td><td>-</td><td><code>https://www.google.com/search?q={query}</code></td></tr>
 <tr><td><b>say</b></td><td>Text spoken aloud with the voice chosen in Settings. <code>{text}</code> allowed.
   To use a different voice for one command, add <code>voice: en_GB-alan-medium</code> (a downloaded Piper voice),
   a path to a <code>.onnx</code> voice file, or a system voice name, in the profile file.</td><td>-</td><td>-</td><td><code>shields up</code>, <code>It's {time}</code></td></tr>
-<tr><td><b>sound</b></td><td>Path to an audio file to play</td><td>-</td><td>-</td><td><code>/home/you/sounds/ok.wav</code></td></tr>
+<tr><td><b>sound</b></td><td>Path to an audio file to play</td><td>-</td><td>-</td><td><code>~/sounds/ok.wav</code> (Windows: .wav files)</td></tr>
 <tr><td><b>listening</b></td><td><code>on</code>, <code>off</code> or <code>toggle</code>. While off, only commands with a
   listening action still work.</td><td>-</td><td>-</td><td><code>off</code></td></tr>
 </table>
@@ -83,14 +87,14 @@ leave them blank for the defaults.</p>
   <code>next</code> <code>previous</code> <code>print</code> <code>scrolllock</code> <code>pause</code></td></tr>
 <tr><td>Mouse buttons in combos</td><td><code>mouse_left</code> <code>mouse_right</code> <code>mouse_middle</code>
   <code>mouse4</code> <code>mouse5</code></td></tr>
-<tr><td>Anything else</td><td>Any Linux key name, e.g. <code>KEY_SYSRQ</code>, <code>BTN_SIDE</code></td></tr>
+<tr><td>Anything else</td><td>Any Linux (evdev) key name, also on Windows, e.g. <code>KEY_SYSRQ</code>, <code>BTN_SIDE</code></td></tr>
 </table>
 
 <h2>Placeholders</h2>
-<p>Usable in <b>say</b>, <b>type</b> and <b>run</b> values:</p>
+<p>Usable in <b>say</b>, <b>type</b>, <b>run</b> and <b>open</b> values:</p>
 <table border="1" cellpadding="5" cellspacing="0">
 <tr><td><code>{text}</code></td><td>What you said after a phrase ending in <code>*</code></td></tr>
-<tr><td><code>{query}</code></td><td>The same, URL-encoded (run only), for search URLs</td></tr>
+<tr><td><code>{query}</code></td><td>The same, URL-encoded (run and open), for search URLs</td></tr>
 <tr><td><code>{time}</code></td><td>Current time, e.g. <i>3:29 PM</i> or <i>4 o'clock PM</i></td></tr>
 <tr><td><code>{time24}</code></td><td>24-hour time, e.g. <i>15:29</i></td></tr>
 <tr><td><code>{date}</code></td><td>Today's date, e.g. <i>November 16, 2026</i></td></tr>
@@ -178,13 +182,6 @@ SEARCH_ENGINES = {
 }
 
 
-def quote_url(url: str) -> str:
-    """Shell-quote a URL template around its {query} slots (which the run action fills in pre-quoted)."""
-    import shlex
-
-    return "{query}".join(shlex.quote(part) if part else "" for part in url.split("{query}"))
-
-
 class WebSearchDialog(QDialog):
     """Build a "search <site> <words>" command that opens the results in the default browser."""
 
@@ -241,7 +238,7 @@ class WebSearchDialog(QDialog):
         return {
             "name": f"search {label}".lower(),
             "phrases": [self.phrase.text().strip().rstrip("*").strip() + " *"],
-            "actions": [{"run": "xdg-open " + quote_url(self.url.text().strip())}],
+            "actions": [{"open": self.url.text().strip()}],
             "repeat": 1,
         }
 
@@ -637,7 +634,8 @@ class MainWindow(QMainWindow):
         voice_box = QGroupBox("Spoken replies (say actions)")
         vform = QFormLayout(voice_box)
         self.voice_engine = QComboBox()
-        self.voice_engine.addItem("System voice (speech-dispatcher / espeak-ng)", "system")
+        self.voice_engine.addItem("System voice (Windows SAPI)" if sys.platform == "win32"
+                                  else "System voice (speech-dispatcher / espeak-ng)", "system")
         self.voice_engine.addItem("Natural voice (Piper, offline)", "piper")
         vform.addRow("Engine", self.voice_engine)
         vrow = QHBoxLayout()

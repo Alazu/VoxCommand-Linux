@@ -1,3 +1,3 @@
-"""VoxCommand: voice command macros for Linux, powered by Whisper."""
+"""VoxCommand: voice command macros for Linux and Windows, powered by Whisper."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

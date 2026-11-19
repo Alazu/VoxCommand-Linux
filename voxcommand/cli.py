@@ -52,6 +52,47 @@ def cmd_simulate(args):
     app.executor.wait()
 
 
+def cmd_transcribe(args):
+    """Transcribe WAV files and show which command each would run (nothing is executed)."""
+    from .audio import read_wav
+    from .engine import make_transcriber
+
+    app = App(resolve_profile(args.profile), dry_run=True, log=log)
+    hotwords = ", ".join(dict.fromkeys(app.matcher.vocabulary()))[:800] or None
+    transcriber = make_transcriber(app.settings, log, hotwords)
+    unmatched = 0
+    for file in args.files:
+        heard = transcriber.transcribe(read_wav(file))
+        m = app.matcher.match(heard)
+        unmatched += m is None
+        print(f"{file}: {heard!r} -> {m.command.name if m else 'no match'}" + (f" ({m.score:.0f}%)" if m else ""))
+    sys.exit(1 if unmatched else 0)
+
+
+def cmd_say(args):
+    """Speak text with the profile's voice, or another one; --wav saves Piper speech to a file instead."""
+    from dataclasses import replace
+
+    from . import voices
+    from .engine import voice_settings
+
+    path = Path(args.profile).expanduser() if args.profile else DEFAULT_PROFILE
+    voice = voice_settings(load_profile(path).settings) if path.exists() else voices.VoiceSettings()
+    if args.engine:
+        voice = replace(voice, engine=args.engine)
+    if args.voice:
+        voice = replace(voice, voice=args.voice)
+    text = " ".join(args.text)
+    if args.wav:
+        if voice.engine != "piper":
+            sys.exit("--wav needs a Piper voice (--engine piper)")
+        result = voices.synthesize_piper(text, voice)
+        voices.save_wav(args.wav, *result)
+        print(f"wrote {args.wav} ({len(result[0]) / result[1]:.1f}s)")
+    else:
+        voices.say(text, voice)
+
+
 def cmd_check(args):
     path = resolve_profile(args.profile)
     profile = load_profile(path)
@@ -145,6 +186,13 @@ def main(argv=None):
     p.add_argument("text", nargs="+")
     p.add_argument("--execute", action="store_true", help="really perform the actions")
     add("check", cmd_check, "validate a profile and list its phrases")
+    p = add("transcribe", cmd_transcribe, "transcribe WAV files and show the command each matches")
+    p.add_argument("files", nargs="+")
+    p = add("say", cmd_say, "speak text with the profile's voice")
+    p.add_argument("text", nargs="+")
+    p.add_argument("--engine", choices=["system", "piper"])
+    p.add_argument("--voice", help="voice name, Piper voice key or .onnx file")
+    p.add_argument("--wav", help="save Piper speech to this WAV file instead of playing it")
     p = add("init", cmd_init, "create an example profile")
     p.add_argument("--force", action="store_true")
     add("devices", cmd_devices, "list microphones")

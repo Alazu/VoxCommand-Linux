@@ -16,24 +16,30 @@ def _preload_cuda_libs():
 
     if gpu.is_installed():
         _load_dir(str(gpu.lib_dir()))
-    for pkg in ("nvidia.cublas", "nvidia.cudnn"):
+    for pkg in ("nvidia.cublas", "nvidia.cudnn", "nvidia.cuda_nvrtc"):
         try:
             spec = importlib.util.find_spec(pkg)
         except ModuleNotFoundError:
             continue
         if spec is None or not spec.submodule_search_locations:
             continue
-        _load_dir(os.path.join(list(spec.submodule_search_locations)[0], "lib"))
+        _load_dir(os.path.join(list(spec.submodule_search_locations)[0], "bin" if os.name == "nt" else "lib"))
 
 
 def _load_dir(path: str):
     # Load order matters (cuDNN needs cuBLAS); retry until nothing more loads.
-    pending = sorted(glob.glob(os.path.join(path, "*.so*")))
+    if os.name == "nt":
+        if not os.path.isdir(path):
+            return
+        # cuDNN loads its sub-libraries by name later, so make the folder findable too.
+        os.add_dll_directory(path)
+        os.environ["PATH"] = path + os.pathsep + os.environ.get("PATH", "")
+    pending = sorted(glob.glob(os.path.join(path, "*.dll" if os.name == "nt" else "*.so*")))
     while pending:
         failed = []
         for lib in pending:
             try:
-                ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
+                ctypes.CDLL(lib, mode=getattr(ctypes, "RTLD_GLOBAL", 0))
             except OSError:
                 failed.append(lib)
         if len(failed) == len(pending):

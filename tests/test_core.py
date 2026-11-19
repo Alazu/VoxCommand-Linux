@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import pytest
 
@@ -103,7 +105,7 @@ def test_example_profile_is_valid():
 
 
 def test_desktop_apps(tmp_path):
-    from voxcommand.apps import exec_to_command, list_apps, suggested_phrase
+    from voxcommand.apps import exec_to_command, list_desktop_apps as list_apps, suggested_phrase
 
     assert exec_to_command('firefox %u') == "firefox"
     assert exec_to_command('/usr/bin/flatpak run --command=steam com.valvesoftware.Steam @@u %U @@') == \
@@ -128,6 +130,7 @@ def test_specific_wildcard_beats_generic():
     assert m.match("search for fedora").text == "fedora"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell")
 def test_run_query_placeholder(monkeypatch):
     import subprocess
 
@@ -142,6 +145,7 @@ def test_run_query_placeholder(monkeypatch):
     assert out == "https://x.test/?a=1&q=cats+%26+dogs%3B+rm+-rf+~&b=2 cats & dogs; rm -rf ~\n"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="XDG autostart")
 def test_autostart_entry(tmp_path, monkeypatch):
     import shlex
 
@@ -219,3 +223,106 @@ def test_wildcard_words_can_follow_in_next_utterance(tmp_path):
     assert sent == [("dictate", "Hello world"), ("dictate", "in one go"), ("gear", "")]
     app.handle("type"); app.pending = (app.pending[0], 0)  # expired
     assert not app.handle("too late")
+
+
+def test_windows_key_table():
+    from voxcommand import winput as w
+
+    assert w.KEYS["KEY_A"] == 0x1E and w.KEYS["KEY_F10"] == 0x44 and w.KEYS["KEY_F12"] == 0x58
+    assert w.KEYS["KEY_UP"] == w.EXT | 0x48 and w.KEYS["KEY_RIGHTCTRL"] == w.EXT | 0x1D
+    assert w.KEYS["KEY_VOLUMEUP"] == w.VK | 0xAF and w.KEYS["BTN_SIDE"] == w.MOUSE | 4
+    assert "KEY_NUMLOCK" in w.KEYS and w.KEYS["KEY_SCROLLLOCK"] == 0x46
+
+
+def test_key_names_resolve_on_windows_table(monkeypatch):
+    from voxcommand import actions, winput
+
+    monkeypatch.setattr(actions, "WINDOWS", True)
+    assert actions.parse_combo("ctrl+shift+f5") == [0x1D, 0x2A, 0x3F]
+    assert actions.key_code("mouse4") == winput.MOUSE | 4
+    assert actions.key_code("rctrl") == winput.EXT | 0x1D
+    with pytest.raises(ValueError, match="Windows"):
+        actions.key_code("KEY_BRIGHTNESSUP")
+
+
+def test_windows_shell_quote_drops_cmd_specials(monkeypatch):
+    from voxcommand import actions
+
+    monkeypatch.setattr(actions, "WINDOWS", True)
+    assert actions.shell_quote('cats & "dogs" | %PATH% ^ <x> !y') == '"cats  dogs  PATH  x y"'
+
+
+def test_open_action_fills_placeholders(monkeypatch):
+    from voxcommand import actions
+
+    opened = []
+    monkeypatch.setattr(actions, "open_target", opened.append)
+    actions.Executor().run_action({"open": "https://x.test/?q={query}"}, "cats & dogs")
+    assert opened == ["https://x.test/?q=cats+%26+dogs"]
+
+
+def test_start_menu_apps(tmp_path):
+    from voxcommand.apps import list_windows_apps
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    (a / "Games").mkdir(parents=True); b.mkdir()
+    (a / "Games" / "Elite.lnk").write_text("")
+    (a / "Uninstall Elite.lnk").write_text("")
+    (b / "elite.lnk").write_text("")  # same name in the second folder: first one wins
+    (b / "Notes.txt").write_text("")
+    (b / "Zed.url").write_text("")
+    apps = list_windows_apps([a, b])
+    assert [(x.name, x.comment) for x in apps] == [("Elite", "Games"), ("Zed", "")]
+    assert apps[0].command == f'start "" "{a / "Games" / "Elite.lnk"}"'
+
+
+windows = pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
+
+
+@windows
+def test_sendinput_presses_real_keys():
+    import ctypes
+    import time
+
+    from voxcommand import winput as w
+
+    assert ctypes.sizeof(w.INPUT) == (40 if sys.maxsize > 2**32 else 28)
+    assert w.virtual_key(w.KEYS["KEY_A"]) == 0x41
+    assert w.virtual_key(w.KEYS["KEY_RIGHTCTRL"]) == 0xA3
+    dev = w.SendInputDevice()
+    f24 = w.KEYS["KEY_F24"]
+    held = w.watch_key(f24)
+    dev.keys([f24], True)
+    time.sleep(0.1)
+    assert held.is_set()
+    dev.keys([f24], False)
+    time.sleep(0.1)
+    assert not held.is_set()
+
+
+@windows
+def test_windows_autostart_registry():
+    from voxcommand import autostart
+
+    before = autostart._registry_value()
+    try:
+        autostart.enable(listen=True)
+        assert autostart.is_enabled() and autostart.listens_on_start()
+        assert "gui --hidden --listen" in autostart._registry_value()
+        autostart.enable(listen=False)
+        assert not autostart.listens_on_start()
+        autostart.disable()
+        assert not autostart.is_enabled()
+    finally:
+        if before:
+            import winreg
+
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, autostart.RUN_KEY) as key:
+                winreg.SetValueEx(key, "VoxCommand", 0, winreg.REG_SZ, before)
+
+
+@windows
+def test_sapi_voices():
+    from voxcommand import voices
+
+    assert voices.system_voices(), "Windows should have at least one SAPI voice"

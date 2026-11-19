@@ -1,4 +1,5 @@
-"""Spoken replies (the `say` action): system voices via speech-dispatcher, or Piper neural voices.
+"""Spoken replies (the `say` action): system voices (speech-dispatcher on Linux, SAPI on Windows),
+or Piper neural voices.
 
 Piper voices are natural-sounding, run offline, and come either from the public catalogue
 (downloaded on request) or from any Piper .onnx voice file you have, including ones you trained.
@@ -11,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -30,14 +32,23 @@ class VoiceSettings:
     volume: int = 0  # -100 .. 100
 
 
+WINDOWS = sys.platform == "win32"
+
+
 def voices_dir() -> Path:
-    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-    return Path(base) / "voxcommand" / "voices"
+    from .config import data_dir
+
+    return data_dir() / "voices"
 
 
 # ----------------------------------------------------------------- system voices
 def system_voices() -> list[str]:
-    """speech-dispatcher voice names for its default module (espeak-ng on Fedora)."""
+    """speech-dispatcher voice names for its default module (espeak-ng on Fedora); SAPI voices on Windows."""
+    if WINDOWS:
+        try:
+            return [v.GetDescription() for v in _sapi_voices()]
+        except Exception:  # noqa: BLE001 - no SAPI: nothing to offer
+            return []
     spd = shutil.which("spd-say")
     if not spd:
         return []
@@ -53,7 +64,37 @@ def system_voices() -> list[str]:
     return names
 
 
+def _sapi_voices():
+    import comtypes.client
+
+    comtypes.CoInitialize()  # COM is per thread; calling it again on the same thread is harmless
+    tokens = comtypes.client.CreateObject("SAPI.SpVoice").GetVoices()
+    return [tokens.Item(i) for i in range(tokens.Count)]
+
+
+def _say_sapi(text: str, s: VoiceSettings):
+    from xml.sax.saxutils import escape
+
+    import comtypes.client
+
+    comtypes.CoInitialize()
+    sapi = comtypes.client.CreateObject("SAPI.SpVoice")
+    if s.voice:
+        tokens = sapi.GetVoices()
+        for i in range(tokens.Count):
+            if tokens.Item(i).GetDescription() == s.voice:
+                sapi.Voice = tokens.Item(i)
+                break
+    sapi.Rate = max(-10, min(10, round(s.rate / 10)))
+    sapi.Volume = max(0, min(100, 100 + s.volume))
+    # SAPI XML: pitch -10..10. Flag 8 = SVSFIsXML, so escape the spoken text.
+    sapi.Speak(f'<pitch absmiddle="{max(-10, min(10, round(s.pitch / 10)))}">{escape(text)}</pitch>', 8)
+
+
 def _say_system(text: str, s: VoiceSettings):
+    if WINDOWS:
+        _say_sapi(text, s)
+        return
     spd = shutil.which("spd-say")
     if spd:
         args = [spd, "-w", "-N", "voxcommand", "-r", str(s.rate), "-p", str(s.pitch), "-i", str(s.volume)]
@@ -143,7 +184,7 @@ def piper_model_path(voice: str | None) -> Path:
     if not voice:
         installed = installed_voices()
         if not installed:
-            raise RuntimeError("no Piper voice installed: pick one in Settings > Voice")
+            raise RuntimeError("no Piper voice installed: pick one in Settings > Spoken replies")
         voice = installed[0]
     path = Path(voice).expanduser()
     if path.suffix != ".onnx":
@@ -155,11 +196,10 @@ def piper_model_path(voice: str | None) -> Path:
     return path
 
 
-def _say_piper(text: str, s: VoiceSettings):
+def synthesize_piper(text: str, s: VoiceSettings):
+    """-> (float32 audio, sample rate), or None for text with nothing to say."""
     import numpy as np
     from piper import PiperVoice, SynthesisConfig
-
-    from .audio import sounddevice
 
     path = str(piper_model_path(s.voice))
     with _lock:
@@ -169,10 +209,28 @@ def _say_piper(text: str, s: VoiceSettings):
     config = SynthesisConfig(length_scale=2 ** (-s.rate / 100), volume=max(0.0, 1 + s.volume / 100))
     chunks = list(voice.synthesize(text, syn_config=config))
     if not chunks:
-        return
-    audio = np.concatenate([c.audio_float_array for c in chunks])
-    sd = sounddevice()
-    sd.play(audio, chunks[0].sample_rate, blocking=True)
+        return None
+    return np.concatenate([c.audio_float_array for c in chunks]), chunks[0].sample_rate
+
+
+def _say_piper(text: str, s: VoiceSettings):
+    from .audio import sounddevice
+
+    result = synthesize_piper(text, s)
+    if result:
+        sounddevice().play(*result, blocking=True)
+
+
+def save_wav(path: str | Path, audio, rate: int):
+    import wave
+
+    import numpy as np
+
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
 
 
 def say(text: str, settings: VoiceSettings):

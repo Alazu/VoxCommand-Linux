@@ -1,20 +1,26 @@
-"""Macro actions: keyboard and mouse through a uinput virtual device, plus shell/speech helpers.
+"""Macro actions: keyboard and mouse through a virtual input device, plus shell/speech helpers.
 
-uinput works below the display server, so it behaves the same on Wayland, X11 and inside games.
+On Linux that is a uinput device, which works below the display server, so it behaves the same on
+Wayland, X11 and inside games. On Windows it is SendInput with hardware scan codes (winput.py).
 """
 
 from __future__ import annotations
 
+import os
 import queue
+import re
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
 import urllib.parse
 
 from .config import Command
+
+WINDOWS = sys.platform == "win32"
 
 KEY_ALIASES = {
     "ctrl": "LEFTCTRL", "control": "LEFTCTRL", "lctrl": "LEFTCTRL", "rctrl": "RIGHTCTRL",
@@ -40,16 +46,70 @@ _PLAIN_CHARS = {" ": "SPACE", "\n": "ENTER", "\t": "TAB"}
 
 
 def key_code(name: str) -> int:
-    """Resolve "f5", "ctrl", "KEY_KP1", "BTN_SIDE", "mouse4"... to an evdev code."""
-    from evdev import ecodes
+    """Resolve "f5", "ctrl", "KEY_KP1", "BTN_SIDE", "mouse4"... to a key code for this platform."""
+    if WINDOWS:
+        from .winput import KEYS as table
+    else:
+        from evdev import ecodes
 
+        table = ecodes.ecodes
     raw = str(name).strip()
     resolved = KEY_ALIASES.get(raw.lower(), raw).upper()
     for candidate in (resolved, "KEY_" + resolved, "BTN_" + resolved):
-        code = ecodes.ecodes.get(candidate)
+        code = table.get(candidate)
         if code is not None and candidate.startswith(("KEY_", "BTN_")):
             return code
-    raise ValueError(f"unknown key {name!r}")
+    raise ValueError(f"unknown key {name!r}" + (" (not available on Windows)" if WINDOWS else ""))
+
+
+def shell_quote(text: str) -> str:
+    """Quote spoken (untrusted) text for the shell that `run` uses: sh on Linux, cmd.exe on Windows."""
+    if not WINDOWS:
+        return shlex.quote(text)
+    # cmd.exe has no reliable escaping inside quotes, so drop the characters it treats specially.
+    return '"' + re.sub(r'["%^&|<>!\r\n]', "", text) + '"'
+
+
+def open_target(target: str):
+    """Open a file, folder, URL or shortcut with its default application (no shell involved)."""
+    if WINDOWS:
+        os.startfile(target)  # noqa: S606 - this is what the action is for
+    else:
+        opener = shutil.which("xdg-open") or "xdg-open"
+        subprocess.Popen([opener, target], start_new_session=True)
+
+
+class _UInputDevice:
+    """Linux: a uinput virtual keyboard + mouse."""
+
+    def __init__(self):
+        from evdev import UInput, ecodes as e
+
+        keys = [c for n, c in e.ecodes.items() if n.startswith("KEY_") and c < 0x230]
+        buttons = [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE, e.BTN_SIDE, e.BTN_EXTRA]
+        try:
+            self.ui = UInput(
+                {e.EV_KEY: keys + buttons, e.EV_REL: [e.REL_X, e.REL_Y, e.REL_WHEEL]}, name="voxcommand virtual input"
+            )
+        except (PermissionError, OSError) as err:
+            raise PermissionError(f"cannot open /dev/uinput ({err}). See 'Permissions' in the README.") from err
+        time.sleep(0.3)  # give the compositor a moment to notice the new device
+
+    def keys(self, codes, down: bool):
+        from evdev import ecodes as e
+
+        for code in codes:
+            self.ui.write(e.EV_KEY, code, 1 if down else 0)
+        self.ui.syn()
+
+    def scroll(self, clicks: int):
+        from evdev import ecodes as e
+
+        self.ui.write(e.EV_REL, e.REL_WHEEL, clicks)
+        self.ui.syn()
+
+    def close(self):
+        self.ui.close()
 
 
 def parse_combo(combo: str) -> list[int]:
@@ -89,27 +149,16 @@ class Executor:
     @property
     def ui(self):
         if self._ui is None:
-            from evdev import UInput, ecodes as e
+            if WINDOWS:
+                from .winput import SendInputDevice
 
-            keys = [c for n, c in e.ecodes.items() if n.startswith("KEY_") and c < 0x230]
-            buttons = [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE, e.BTN_SIDE, e.BTN_EXTRA]
-            try:
-                self._ui = UInput(
-                    {e.EV_KEY: keys + buttons, e.EV_REL: [e.REL_X, e.REL_Y, e.REL_WHEEL]}, name="voxcommand virtual input"
-                )
-            except (PermissionError, OSError) as err:
-                raise PermissionError(
-                    f"cannot open /dev/uinput ({err}). See 'Permissions' in the README."
-                ) from err
-            time.sleep(0.3)  # give the compositor a moment to notice the new device
+                self._ui = SendInputDevice()
+            else:
+                self._ui = _UInputDevice()
         return self._ui
 
     def _emit(self, codes, value):
-        from evdev import ecodes as e
-
-        for code in codes:
-            self.ui.write(e.EV_KEY, code, value)
-        self.ui.syn()
+        self.ui.keys(codes, bool(value))
 
     def tap(self, codes, hold=None):
         self._emit(codes, 1)
@@ -118,6 +167,9 @@ class Executor:
         time.sleep(0.01)
 
     def type_text(self, text):
+        if hasattr(self.ui, "type_text"):  # Windows: Unicode input, independent of the keyboard layout
+            self.ui.type_text(text)
+            return
         shift = [key_code("shift")]
         for ch in text:
             shifted = ch in _SHIFTED or ch.isupper()
@@ -182,18 +234,22 @@ class Executor:
             for _ in range(times):
                 self.tap(codes, action.get("hold"))
         elif "scroll" in action:
-            from evdev import ecodes as e
-
-            self.ui.write(e.EV_REL, e.REL_WHEEL, int(action["scroll"]))
-            self.ui.syn()
+            self.ui.scroll(int(action["scroll"]))
         elif "run" in action:
             # Spoken text is untrusted input: always quote it before it reaches the shell.
             # {query} is the same text URL-encoded, for search URLs.
-            cmd = (fill_clock(str(action["run"])).replace("{text}", shlex.quote(text))
-                   .replace("{query}", shlex.quote(urllib.parse.quote_plus(text))))
-            proc = subprocess.Popen(cmd, shell=True, start_new_session=True)
+            cmd = (fill_clock(str(action["run"])).replace("{text}", shell_quote(text))
+                   .replace("{query}", shell_quote(urllib.parse.quote_plus(text))))
+            if WINDOWS:  # no console window flashing up for cmd.exe
+                proc = subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            else:
+                proc = subprocess.Popen(cmd, shell=True, start_new_session=True)
             if action.get("wait"):
                 proc.wait()
+        elif "open" in action:
+            # No shell here, so {text} needs no quoting; {query} is URL-encoded for search URLs.
+            open_target(fill_clock(str(action["open"])).replace("{text}", text)
+                        .replace("{query}", urllib.parse.quote_plus(text)))
         elif "say" in action:
             from dataclasses import replace
 
@@ -208,9 +264,14 @@ class Executor:
                     voice = replace(voice, engine=str(action["engine"]))
             say(fill(action["say"]), voice)
         elif "sound" in action:
-            player = shutil.which("pw-play") or shutil.which("paplay") or shutil.which("aplay")
-            if player:
-                subprocess.Popen([player, fill(action["sound"])])
+            if WINDOWS:
+                import winsound
+
+                winsound.PlaySound(os.path.expanduser(fill(action["sound"])), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            else:
+                player = shutil.which("pw-play") or shutil.which("paplay") or shutil.which("aplay")
+                if player:
+                    subprocess.Popen([player, os.path.expanduser(fill(action["sound"]))])
         elif "listening" in action:
             self.on_listening(action["listening"])
 

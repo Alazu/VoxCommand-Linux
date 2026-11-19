@@ -2,14 +2,30 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 import yaml
 
-DEFAULT_PROFILE = Path.home() / ".config" / "voxcommand" / "profile.yaml"
+def config_dir() -> Path:
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "VoxCommand"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "voxcommand"
 
-ACTION_TYPES = ("key", "press", "release", "type", "pause", "run", "mouse", "scroll", "say", "sound", "listening")
+
+def data_dir() -> Path:
+    """Downloaded voices and GPU libraries."""
+    if sys.platform == "win32":
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "VoxCommand"
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "voxcommand"
+
+
+DEFAULT_PROFILE = config_dir() / "profile.yaml"
+
+ACTION_TYPES = ("key", "press", "release", "type", "pause", "run", "open", "mouse", "scroll", "say", "sound",
+                "listening")
 
 
 class ProfileError(ValueError):

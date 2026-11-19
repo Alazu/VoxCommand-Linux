@@ -1,7 +1,7 @@
 [project]
 name = "voxcommand"
 dynamic = ["version"]
-description = "Open-source voice command macros for Linux (a VoiceAttack alternative) powered by Whisper"
+description = "Open-source voice command macros for Linux and Windows (a VoiceAttack alternative) powered by Whisper"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10,<3.14"
@@ -9,7 +9,8 @@ dependencies = [
     "faster-whisper>=1.1",
     "sounddevice>=0.4",
     "numpy",
-    "evdev>=1.7",
+    "evdev>=1.7; sys_platform == 'linux'",
+    "comtypes>=1.4; sys_platform == 'win32'",
     "rapidfuzz>=3",
     "pyyaml>=6",
     "piper-tts>=1.3",

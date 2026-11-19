@@ -32,6 +32,22 @@ def sounddevice():
     return sd
 
 
+def read_wav(path) -> np.ndarray:
+    """A 16-bit PCM WAV file as 16 kHz mono float32, the way Whisper wants it."""
+    import wave
+
+    with wave.open(str(path), "rb") as w:
+        if w.getsampwidth() != 2:
+            raise ValueError(f"{path}: only 16-bit PCM WAV files are supported")
+        data = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float32) / 32768
+        data = data.reshape(-1, w.getnchannels()).mean(axis=1)
+        rate = w.getframerate()
+    if rate != RATE:
+        n = int(len(data) * RATE / rate)
+        data = np.interp(np.linspace(0, len(data), n, endpoint=False), np.arange(len(data)), data)
+    return data.astype(np.float32)
+
+
 class Segmenter:
     """Energy-based voice activity detector: feed fixed-size blocks, get whole utterances back.
 
@@ -180,6 +196,10 @@ def clips(mic: Microphone, detector, stop: threading.Event | None = None, on_lev
 
 def watch_key(key_code: int) -> threading.Event:
     """Track a key/button on every input device that has it. Needs read access to /dev/input."""
+    if sys.platform == "win32":
+        from .winput import watch_key as watch_windows_key
+
+        return watch_windows_key(key_code)
     import selectors
 
     import evdev
